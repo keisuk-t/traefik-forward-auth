@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: traefik-forward-iid
+  name: traefik-forward-iid
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefik-forward-iid
+  template:
+    metadata:
+      labels:
+        app: traefik-forward-iid
+    spec:
+      containers:
+      - args:
+        - --log-level=info
+        env:
+        - name: DEFAULT_PROVIDER
+          value: oidc
+        - name: PROVIDERS_OIDC_ISSUER_URL
+          value: "https://www-int.auth.iij.jp/op"
+        - name: LOGOUT_REDIRECT
+          value: "https://www-int.auth.iij.jp/op/end_session?prompt=none"
+        - name: PROVIDERS_OIDC_CLIENT_ID
+          value: "ead38c2371e9f157c3b86f8f37ad7a5c7d43879b476625850790085a46f03e52"
+        - name: PROVIDERS_OIDC_CLIENT_SECRET
+          value: "11a5f037af774059024ac9f759bedabf7244940923b0983b9f30bd29b7c41567"
+        - name: SECRET
+          value: "hogehoge"
+        - name: INSECURE_COOKIE
+          value: "true"
+        image: ikr.iij.jp/iij/traefik-forward-auth:debug
+        imagePullPolicy: Always
+        name: traefik-forward-iid
+        ports:
+        - containerPort: 4181
+          protocol: TCP
+      - name: redis
+        image: redis
+        ports:
+        - containerPort: 6379
+          protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: traefik-forward-iid
+  name: traefik-forward-iid
+  namespace: kube-system
+spec:
+  ports:
+  - port: 4181
+  selector:
+    app: traefik-forward-iid
+

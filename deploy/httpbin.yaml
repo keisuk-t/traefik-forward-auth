@@ -1,0 +1,19 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: traefik2
+  name: httpbin
+  namespace: keisuk-t
+spec:
+  entryPoints:
+  - https
+  routes:
+  - kind: Rule
+    match: Host(`httpbin.office.ike.iiji.jp`)
+    middlewares:
+    - name: iid
+      namespace: kube-system
+    services:
+    - name: httpbin
+      port: 80

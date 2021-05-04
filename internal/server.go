@@ -11,13 +11,17 @@ import (
 
 // Server contains router and handler methods
 type Server struct {
-	router *rules.Router
+	router  *rules.Router
+	session *RedisClient
 }
 
 // NewServer creates a new server object and builds router
 func NewServer() *Server {
-	s := &Server{}
+	s := &Server{
+		session: NewRedisClient(),
+	}
 	s.buildRoutes()
+
 	return s
 }
 
@@ -87,6 +91,14 @@ func (s *Server) AuthHandler(providerName, rule string) http.HandlerFunc {
 			return
 		}
 
+		// get idToken from session server
+		idToken, err := s.session.GetString(c.Value)
+		if err != nil {
+			logger.Info("session info not found")
+			s.authRedirect(logger, w, r, p)
+			return
+		}
+
 		// Validate cookie
 		email, err := ValidateCookie(r, c)
 		if err != nil {
@@ -111,6 +123,7 @@ func (s *Server) AuthHandler(providerName, rule string) http.HandlerFunc {
 		// Valid request
 		logger.Debug("Allowing valid request")
 		w.Header().Set("X-Forwarded-User", email)
+		w.Header().Set("Authorization", "Bearer "+idToken)
 		w.WriteHeader(200)
 	}
 }
@@ -181,8 +194,16 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			return
 		}
 
+		// save idToken to session server
+		sessionCookie := MakeCookie(r, user.Email)
+		if err := s.session.SetString(sessionCookie.Value, s.session.GetToken(token)); err != nil {
+			logger.WithField("error", err).Error("Error setting session")
+			http.Error(w, "Service unavailable", 503)
+			return
+		}
+
 		// Generate cookie
-		http.SetCookie(w, MakeCookie(r, user.Email))
+		http.SetCookie(w, sessionCookie)
 		logger.WithFields(logrus.Fields{
 			"provider": providerName,
 			"redirect": redirect,
@@ -197,6 +218,11 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 // LogoutHandler logs a user out
 func (s *Server) LogoutHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// delete idToken
+		if c, err := r.Cookie(config.CookieName); err == nil {
+			s.session.DeleteString(c.Value)
+		}
+
 		// Clear cookie
 		http.SetCookie(w, ClearCookie(r))
 

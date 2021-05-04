@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/coreos/go-oidc"
+	"github.com/yudai/pp"
 	"golang.org/x/oauth2"
 )
 
@@ -71,29 +73,46 @@ func (o *OIDC) ExchangeCode(redirectURI, code string) (string, error) {
 		return "", err
 	}
 
+	pp.Print("AccessToken: " + token.AccessToken)
+	pp.Print("RefreshToken: " + token.RefreshToken)
+
 	// Extract ID token
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		return "", errors.New("Missing id_token")
 	}
 
-	return rawIDToken, nil
+	// Verify ID token
+	idToken, err := o.verifier.Verify(o.ctx, rawIDToken)
+	if err != nil {
+		return "", err
+	}
+
+	pp.Print(idToken)
+
+	var user User
+	// Extract custom claims
+	if err := idToken.Claims(&user); err != nil || len(user.Email) == 0 {
+		// IDトークンにemailがなければ、userinfo APIを使って取得する
+		userinfo, err := o.provider.UserInfo(o.ctx, o.Config.TokenSource(o.ctx, token))
+		if err != nil {
+			return "", err
+		}
+
+		pp.Print(userinfo)
+
+		return rawIDToken + "|" + userinfo.Email, err
+	}
+
+	return rawIDToken + "|" + user.Email, nil
 }
 
 // GetUser uses the given token and returns a complete provider.User object
 func (o *OIDC) GetUser(token string) (User, error) {
-	var user User
-
-	// Parse & Verify ID Token
-	idToken, err := o.verifier.Verify(o.ctx, token)
-	if err != nil {
-		return user, err
+	elements := strings.Split(token, "|")
+	if len(elements) > 1 {
+		return User{Email: elements[1]}, nil
 	}
 
-	// Extract custom claims
-	if err := idToken.Claims(&user); err != nil {
-		return user, err
-	}
-
-	return user, nil
+	return User{}, errors.New("Missing email")
 }
